@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import os
 
+# Webhook récupéré depuis les secrets GitHub
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
 def get_economic_news():
@@ -25,20 +26,31 @@ def get_economic_news():
 
 def summarize(news):
     lines = news.splitlines()
-    return f"Résumé : {len(lines)} annonces.\n" + "\n".join(lines[:3])
+    if not lines:
+        return "Aucune donnée à résumer."
+    return f"Résumé automatique ({len(lines)} lignes) :\n" + "\n".join(lines[:3])
 
 def send_to_discord(msg):
+    if not WEBHOOK_URL:
+        print("⚠️ Webhook Discord non défini.")
+        return
     payload = {"content": msg}
-    requests.post(WEBHOOK_URL, json=payload)
+    response = requests.post(WEBHOOK_URL, json=payload)
+    if response.status_code != 204:
+        print(f"❌ Erreur Discord : {response.status_code} - {response.text}")
+    else:
+        print("✅ Message envoyé sur Discord")
 
 def main():
-    now = datetime.utcnow().strftime("%H:%M")
+    print("🔍 Récupération des annonces économiques...")
     news = get_economic_news()
-    if now == "08:00":
-        send_to_discord(f"📢 **Annonces économiques (08h00 UTC)**\n{news}")
-    elif now == "20:00":
-        summary = summarize(news)
-        send_to_discord(f"📊 **Résumé (20h00 UTC)**\n{summary}")
+    print("📢 Envoi des annonces...")
+    send_to_discord(f"📢 **Annonces économiques (TEST MANUEL)**\n{news}")
+
+    print("🧠 Génération du résumé...")
+    summary = summarize(news)
+    print("📊 Envoi du résumé...")
+    send_to_discord(f"📊 **Résumé économique (TEST MANUEL)**\n{summary}")
 
 if __name__ == "__main__":
     main()
