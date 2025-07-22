@@ -12,12 +12,15 @@ CURRENCY_FLAGS = {
     "AUD": "🇦🇺", "NZD": "🇳🇿", "CAD": "🇨🇦", "CHF": "🇨🇭", "CNY": "🇨🇳"
 }
 
+def safe_get(field):
+    return field.text.strip() if field and field.text else "—"
+
 def fetch_events():
     try:
         response = requests.get(FEED_URL, timeout=10)
         response.raise_for_status()
     except Exception as e:
-        print(f"Erreur de requête : {e}")
+        print(f"❌ Erreur de requête : {e}")
         return []
 
     soup = BeautifulSoup(response.content, "xml")
@@ -31,24 +34,23 @@ def fetch_events():
             if pub_date.date() != today:
                 continue
 
-            impact = item.find("field", {"name": "impact"}).text.strip()
+            impact = safe_get(item.find("field", {"name": "impact"}))
             if impact not in {"High", "Medium"}:
                 continue
 
             event = {
-                "title": item.title.text.strip(),
-                "currency": item.find("field", {"name": "currency"}).text.strip(),
-                "country": item.find("field", {"name": "country"}).text.strip(),
+                "title": safe_get(item.title),
+                "currency": safe_get(item.find("field", {"name": "currency"})),
+                "country": safe_get(item.find("field", {"name": "country"})),
                 "impact": impact,
-                "actual": item.find("field", {"name": "actual"}).text.strip(),
-                "forecast": item.find("field", {"name": "forecast"}).text.strip(),
-                "previous": item.find("field", {"name": "previous"}).text.strip(),
+                "actual": safe_get(item.find("field", {"name": "actual"})),
+                "forecast": safe_get(item.find("field", {"name": "forecast"})),
+                "previous": safe_get(item.find("field", {"name": "previous"})),
                 "time": pub_date.strftime("%H:%M")
             }
             filtered_events.append(event)
-
         except Exception as e:
-            print(f"Erreur parsing événement : {e}")
+            print(f"⚠️ Erreur parsing événement : {e}")
             continue
 
     print(f"✅ Événements valides trouvés : {len(filtered_events)}")
@@ -68,15 +70,11 @@ def summarize_events(events):
         lines.append(f"{flag} **{evts[0]['country']} ({currency})**")
 
         for e in evts:
-            bloc = f"{e['title']}\n"
-            if any([e['actual'], e['forecast'], e['previous']]):
+            bloc = f"**{e['title']}** à {e['time']}\n"
+            if e['actual'] != "—" or e['forecast'] != "—" or e['previous'] != "—":
                 bloc += f"Résultat : {e['actual']} (prévu : {e['forecast']}, précédent : {e['previous']})\n"
             bloc += "→ "
-            if e['impact'] == "High":
-                bloc += "Impact potentiellement important sur les marchés."
-            else:
-                bloc += "Impact modéré, à surveiller."
-
+            bloc += "📈 Fort impact" if e['impact'] == "High" else "📉 Impact modéré"
             lines.append(bloc + "\n")
 
     return "\n".join(lines)
@@ -95,7 +93,9 @@ def send_to_discord(message):
 def main():
     print("🔍 Récupération des événements économiques du jour...")
     events = fetch_events()
+    print("🧠 Création du résumé...")
     summary = summarize_events(events)
+    print("📤 Envoi du message à Discord...")
     send_to_discord(summary)
 
 if __name__ == "__main__":
