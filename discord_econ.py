@@ -1,143 +1,123 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import os
 from collections import defaultdict
 
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
-def get_economic_news():
-    url = "https://www.forexfactory.com/calendar"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
+FEED_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
 
-    rows = soup.select("tr.calendar__row")
+IMPACT_LEVELS = {
+    "High": "🔴",
+    "Medium": "🟡"
+}
+
+CURRENCY_FLAGS = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦",
+    "CHF": "🇨🇭",
+    "CNY": "🇨🇳"
+}
+
+def fetch_events():
+    resp = requests.get(FEED_URL)
+    soup = BeautifulSoup(resp.content, "xml")
+    items = soup.find_all("item")
+
+    today = datetime.utcnow().date()
     events = []
 
-    for row in rows:
+    for item in items:
         try:
-            time = row.select_one("td.calendar__time")
-            event = row.select_one("td.calendar__event")
-            impact = row.select_one("td.calendar__impact span")
-            country = row.select_one("td.calendar__flag")
-            actual = row.select_one("td.calendar__actual")
-            forecast = row.select_one("td.calendar__forecast")
-            previous = row.select_one("td.calendar__previous")
-
-            if not (time and event and impact and country):
+            date_str = item.pubDate.text.strip()
+            pub_date = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+            if pub_date.date() != today:
                 continue
 
-            impact_text = impact['title']
-            emoji = "🔴" if "High" in impact_text else "🟡" if "Medium" in impact_text else "🟢"
+            impact = item.find("field", {"name": "impact"}).text.strip()
+            if impact not in IMPACT_LEVELS:
+                continue
+
+            title = item.title.text.strip()
+            country = item.find("field", {"name": "country"}).text.strip()
+            currency = item.find("field", {"name": "currency"}).text.strip()
+            actual = item.find("field", {"name": "actual"}).text.strip()
+            forecast = item.find("field", {"name": "forecast"}).text.strip()
+            previous = item.find("field", {"name": "previous"}).text.strip()
+            time = pub_date.strftime("%H:%M")
 
             events.append({
-                "heure": time.text.strip(),
-                "pays": country['title'],
-                "event": event.text.strip(),
-                "impact": impact_text,
-                "emoji": emoji,
-                "résultat": actual.text.strip() if actual else "-",
-                "prévision": forecast.text.strip() if forecast else "-",
-                "précédent": previous.text.strip() if previous else "-"
+                "impact": impact,
+                "title": title,
+                "currency": currency,
+                "country": country,
+                "actual": actual,
+                "forecast": forecast,
+                "previous": previous,
+                "time": time
             })
-
-        except Exception as e:
-            print("Erreur parsing ligne :", e)
+        except Exception:
+            continue
 
     return events
 
-def get_flag_emoji(pays):
-    flags = {
-        "United States": "🇺🇸",
-        "Eurozone": "🇪🇺",
-        "Germany": "🇩🇪",
-        "France": "🇫🇷",
-        "United Kingdom": "🇬🇧",
-        "Japan": "🇯🇵",
-        "Canada": "🇨🇦",
-        "Australia": "🇦🇺",
-        "Switzerland": "🇨🇭",
-        "China": "🇨🇳",
-        "New Zealand": "🇳🇿"
-    }
-    return flags.get(pays, "🌍")
-
-def analyze_event(event):
-    r = event['résultat']
-    f = event['prévision']
-    p = event['précédent']
-    try:
-        r_val = float(r.replace('%', '').replace(',', '').replace('+', ''))
-        f_val = float(f.replace('%', '').replace(',', '').replace('+', '')) if f != "-" else None
-        p_val = float(p.replace('%', '').replace(',', '').replace('+', '')) if p != "-" else None
-
-        commentary = ""
-        if f_val is not None:
-            if r_val > f_val:
-                commentary = "→ Résultat supérieur aux attentes, signal positif."
-            elif r_val < f_val:
-                commentary = "→ Résultat inférieur aux attentes, possible ralentissement."
-            else:
-                commentary = "→ Résultat conforme aux attentes."
-        elif p_val is not None:
-            if r_val > p_val:
-                commentary = "→ Hausse par rapport au mois précédent."
-            elif r_val < p_val:
-                commentary = "→ Baisse par rapport au mois précédent."
-            else:
-                commentary = "→ Stable par rapport au mois précédent."
-        else:
-            commentary = "→ Analyse indisponible."
-
-        return commentary
-    except:
-        return "→ Données insuffisantes pour analyser."
-
-def summarize(events):
-    if not events:
-        return "Aucune donnée à résumer."
-
-    summary = "📊 **Résumé économique (TEST MANUEL)**\n\n"
+def summarize_events(events):
     grouped = defaultdict(list)
-    for e in events:
-        if "High" not in e["impact"] and "Medium" not in e["impact"]:
-            continue
 
-        explanation = analyze_event(e)
-        bloc = (
-            f"{get_flag_emoji(e['pays'])} {e['pays']} ({e['event']})\n"
-            f"Résultat : {e['résultat']} | Prévu : {e['prévision']} | Précédent : {e['précédent']}\n"
-            f"{explanation}"
-        )
-        grouped[e["pays"]].append(bloc)
+    for event in events:
+        currency = event["currency"]
+        grouped[currency].append(event)
 
-    if not grouped:
-        return "Aucune annonce économique significative à commenter aujourd’hui."
+    summary_lines = []
 
-    for pays, blocs in grouped.items():
-        summary += f"\n🔹 **{pays}**\n" + "\n\n".join(blocs) + "\n"
+    for currency, evts in grouped.items():
+        flag = CURRENCY_FLAGS.get(currency, "")
+        header = f"{flag} {event['country']} ({currency})"
+        summary_lines.append(header)
 
-    summary += f"\n\nTotal : {sum(len(v) for v in grouped.values())} événements commentés."
-    return summary.strip()
+        for e in evts:
+            info = f"{e['title']}\n"
+            if e['actual'] or e['forecast'] or e['previous']:
+                info += f"Résultat : {e['actual']} (prévu : {e['forecast']}, précédent : {e['previous']})\n"
+            else:
+                info += "(pas de données chiffrées disponibles)\n"
 
-def send_to_discord(msg):
-    if not WEBHOOK_URL:
-        print("❌ Webhook Discord non défini.")
+            # Résumé simple
+            if e['impact'] == "High":
+                insight = "→ Impact potentiellement important sur les marchés."
+            elif e['impact'] == "Medium":
+                insight = "→ Peut influencer modérément la devise concernée."
+            else:
+                insight = ""
+
+            summary_lines.append(info + insight + "\n")
+
+    if not summary_lines:
+        return "Aucun événement économique significatif à résumer aujourd’hui."
+
+    final = "**📊 Résumé économique du jour**\n\n" + "\n".join(summary_lines)
+    return final
+
+def send_to_discord(message):
+    if not DISCORD_WEBHOOK:
+        print("Webhook Discord non défini.")
         return
 
-    payload = {"content": msg}
-    response = requests.post(WEBHOOK_URL, json=payload)
+    data = {"content": message}
+    response = requests.post(DISCORD_WEBHOOK, json=data)
 
     if response.status_code != 204:
-        print(f"❌ Erreur Discord : {response.status_code} - {response.text}")
-    else:
-        print("✅ Message envoyé sur Discord")
+        print(f"Erreur envoi Discord : {response.status_code} - {response.text}")
 
 def main():
-    print("🔁 Mode test manuel actif : on envoie le résumé tout de suite.")
-    events = get_economic_news()
-    summary = summarize(events)
+    events = fetch_events()
+    summary = summarize_events(events)
     send_to_discord(summary)
 
 if __name__ == "__main__":
