@@ -7,9 +7,6 @@ from collections import defaultdict
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
 def get_economic_news():
-    """
-    Scrape les annonces économiques depuis ForexFactory et retourne une liste enrichie.
-    """
     url = "https://www.forexfactory.com/calendar"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
@@ -67,9 +64,6 @@ def get_flag_emoji(pays):
     return flags.get(pays, "🌍")
 
 def format_news(events):
-    """
-    Formate les événements économiques groupés par pays.
-    """
     if not events:
         return "Aucune annonce économique aujourd’hui."
 
@@ -88,23 +82,62 @@ def format_news(events):
 
     return message.strip()
 
+def analyze_event(event):
+    r = event['résultat']
+    f = event['prévision']
+    p = event['précédent']
+    try:
+        r_val = float(r.replace('%', '').replace(',', '').replace('+', ''))
+        f_val = float(f.replace('%', '').replace(',', '').replace('+', '')) if f != "-" else None
+        p_val = float(p.replace('%', '').replace(',', '').replace('+', '')) if p != "-" else None
+
+        commentary = ""
+        if f_val is not None:
+            if r_val > f_val:
+                commentary = "→ Résultat supérieur aux attentes, signal positif."
+            elif r_val < f_val:
+                commentary = "→ Résultat inférieur aux attentes, possible ralentissement."
+            else:
+                commentary = "→ Résultat conforme aux attentes."
+        elif p_val is not None:
+            if r_val > p_val:
+                commentary = "→ Hausse par rapport au mois précédent."
+            elif r_val < p_val:
+                commentary = "→ Baisse par rapport au mois précédent."
+            else:
+                commentary = "→ Stable par rapport au mois précédent."
+        else:
+            commentary = "→ Analyse indisponible."
+
+        return commentary
+    except:
+        return "→ Données insuffisantes pour analyser."
+
 def summarize(events):
-    """
-    (Temporaire) Résume les événements par les 3 les plus importants.
-    À remplacer à l'étape suivante.
-    """
     if not events:
         return "Aucune donnée à résumer."
 
-    high_impact = [e for e in events if "High" in e["impact"]]
-    summary = f"🔴 High Impact ({len(high_impact)})\n"
+    summary = "📊 **Résumé économique (20h00 UTC)**\n\n"
+    grouped = defaultdict(list)
+    for e in events:
+        if "High" not in e["impact"] and "Medium" not in e["impact"]:
+            continue
 
-    for e in high_impact[:3]:
-        summary += (
-            f"- {e['heure']} | {get_flag_emoji(e['pays'])} {e['pays']} | {e['event']}\n"
+        explanation = analyze_event(e)
+        bloc = (
+            f"{get_flag_emoji(e['pays'])} {e['pays']} ({e['event']})\n"
             f"Résultat : {e['résultat']} | Prévu : {e['prévision']} | Précédent : {e['précédent']}\n"
+            f"{explanation}"
         )
+        grouped[e["pays"]].append(bloc)
 
+    if not grouped:
+        return "Aucune annonce économique significative à commenter aujourd’hui."
+
+    for pays, blocs in grouped.items():
+        summary += f"\n🔹 **{pays}**\n" + "\n\n".join(blocs) + "\n"
+
+    summary += f"\n\nTotal : {sum(len(v) for v in grouped.values())} événements commentés."
     return summary.strip()
 
 def send_to_discord(msg):
@@ -132,7 +165,7 @@ def main():
 
     elif now == "20:00":
         summary = summarize(events)
-        send_to_discord(f"📊 **Résumé économique (20h00 UTC)**\n{summary}")
+        send_to_discord(summary)
 
     else:
         print("🕗 Pas d'envoi prévu à cette heure.")
