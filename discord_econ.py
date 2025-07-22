@@ -63,25 +63,6 @@ def get_flag_emoji(pays):
     }
     return flags.get(pays, "🌍")
 
-def format_news(events):
-    if not events:
-        return "Aucune annonce économique aujourd’hui."
-
-    grouped = defaultdict(list)
-    for e in events:
-        ligne = (
-            f'{e["emoji"]} {e["heure"]} | {e["event"]}\n'
-            f'Résultat : {e["résultat"]} | Prévu : {e["prévision"]} | Précédent : {e["précédent"]}'
-        )
-        grouped[e["pays"]].append(ligne)
-
-    message = "📢 **Annonces économiques - 08h00 UTC**\n\n"
-    for pays, lignes in grouped.items():
-        flag = get_flag_emoji(pays)
-        message += f"{flag} **{pays}**\n" + "\n".join(lignes) + "\n\n"
-
-    return message.strip()
-
 def analyze_event(event):
     r = event['résultat']
     f = event['prévision']
@@ -117,7 +98,7 @@ def summarize(events):
     if not events:
         return "Aucune donnée à résumer."
 
-    summary = "📊 **Résumé économique (20h00 UTC)**\n\n"
+    summary = "📊 **Résumé économique (TEST MANUEL)**\n\n"
     grouped = defaultdict(list)
     for e in events:
         if "High" not in e["impact"] and "Medium" not in e["impact"]:
@@ -154,21 +135,10 @@ def send_to_discord(msg):
         print("✅ Message envoyé sur Discord")
 
 def main():
-    now = datetime.utcnow().strftime("%H:%M")
-    print(f"⏱ Heure actuelle UTC : {now}")
-
+    print("🔁 Mode test manuel actif : on envoie le résumé tout de suite.")
     events = get_economic_news()
-
-    if now == "08:00":
-        msg = format_news(events)
-        send_to_discord(msg)
-
-    elif now == "20:00":
-        summary = summarize(events)
-        send_to_discord(summary)
-
-    else:
-        print("🕗 Pas d'envoi prévu à cette heure.")
+    summary = summarize(events)
+    send_to_discord(summary)
 
 if __name__ == "__main__":
     main()
