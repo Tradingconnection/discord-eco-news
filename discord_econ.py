@@ -13,7 +13,7 @@ CURRENCY_FLAGS = {
 }
 
 def safe_get(field):
-    return field.text.strip() if field and field.text else "—"
+    return field.text.strip() if field and field.text else "N/A"
 
 def fetch_events():
     try:
@@ -25,14 +25,11 @@ def fetch_events():
 
     soup = BeautifulSoup(response.content, "xml")
     items = soup.find_all("item")
-    today = datetime.utcnow().date()
 
     filtered_events = []
     for item in items:
         try:
             pub_date = datetime.strptime(item.pubDate.text.strip(), "%a, %d %b %Y %H:%M:%S %z")
-            if pub_date.date() != today:
-                continue
 
             impact = safe_get(item.find("field", {"name": "impact"}))
             if impact not in {"High", "Medium"}:
@@ -46,7 +43,7 @@ def fetch_events():
                 "actual": safe_get(item.find("field", {"name": "actual"})),
                 "forecast": safe_get(item.find("field", {"name": "forecast"})),
                 "previous": safe_get(item.find("field", {"name": "previous"})),
-                "time": pub_date.strftime("%H:%M")
+                "time": pub_date.strftime("%Y-%m-%d %H:%M UTC")
             }
             filtered_events.append(event)
         except Exception as e:
@@ -64,17 +61,21 @@ def summarize_events(events):
     for e in events:
         grouped[e["currency"]].append(e)
 
-    lines = ["**📊 Résumé économique du jour**\n"]
+    lines = ["**📊 Résumé économique (test sans filtre de date)**\n"]
     for currency, evts in grouped.items():
         flag = CURRENCY_FLAGS.get(currency, "🌍")
         lines.append(f"{flag} **{evts[0]['country']} ({currency})**")
 
         for e in evts:
-            bloc = f"**{e['title']}** à {e['time']}\n"
-            if e['actual'] != "—" or e['forecast'] != "—" or e['previous'] != "—":
+            bloc = f"🕒 {e['time']} – {e['title']}\n"
+            if any([e['actual'], e['forecast'], e['previous']]):
                 bloc += f"Résultat : {e['actual']} (prévu : {e['forecast']}, précédent : {e['previous']})\n"
             bloc += "→ "
-            bloc += "📈 Fort impact" if e['impact'] == "High" else "📉 Impact modéré"
+            if e['impact'] == "High":
+                bloc += "Impact potentiellement **fort** sur les marchés."
+            else:
+                bloc += "Impact **modéré**, à surveiller."
+
             lines.append(bloc + "\n")
 
     return "\n".join(lines)
@@ -91,11 +92,9 @@ def send_to_discord(message):
         print("✅ Message envoyé avec succès.")
 
 def main():
-    print("🔍 Récupération des événements économiques du jour...")
+    print("🔍 Récupération des événements économiques sans filtre de date (TEST)...")
     events = fetch_events()
-    print("🧠 Création du résumé...")
     summary = summarize_events(events)
-    print("📤 Envoi du message à Discord...")
     send_to_discord(summary)
 
 if __name__ == "__main__":
